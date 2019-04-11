@@ -85,9 +85,6 @@ class Student:
                 options = " --config=junit.platform.output.capture.stdout=true --config=junit.platform.output.capture.stderr=true"
                 class_path = os.path.join(context.TEST_PATH,'bin') + ':' + os.path.join(context.SUT_PATH,'bin')
                 self.outcome_junit = subprocess.run("java -ea -jar " + context.JUNIT_JAR + " -cp " + class_path + " --include-classname='.*' -c " + context.TEST_CLASS, shell=True, capture_output=True)
-                if self.outcome_junit.returncode != 0:
-                    self.grade = Student.GRADE_RUNTIME_ERROR
-                    return self.grade
 
                 # parse grades
                 self.grade = self.parse_grade(context, self.outcome_junit.stdout.decode("utf-8"))
@@ -132,7 +129,7 @@ class Student:
             if len(pts_from_tests) > 0:
                 grade = float(pts_from_tests[-1][0])
             else:
-                grade = 0
+                grade = Student.GRADE_RUNTIME_ERROR
             
             return grade
         except Exception as e:
