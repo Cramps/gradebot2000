@@ -8,11 +8,9 @@ import subprocess
 from student import Student 
 from test_context import TestContext
 
-# This regex MUST match the student's full name and the submission file name.
-# Submission [file] name as uploaded by the user, before modified by the submission website/platform.
 FILENAME_PATTERNS= {
     'cofc': r"^\d+-\d+ - ([\w\s\-']+)- \w\w\w{1,2} \d+, \d{4} \d+ [APM]{2} - ([\w\s\-]+\.zip)",
-    'example': r"ExampleHw - (.*)\.zip" }
+    'example': r"ExampleHW - (.*)\.zip" }
 
 HW_NAME = None
 OUT_DIR = None
