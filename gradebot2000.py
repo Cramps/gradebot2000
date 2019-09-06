@@ -8,77 +8,36 @@ import subprocess
 from student import Student 
 from test_context import TestContext
 
-ASSIGNMENT_TOTAL_POINTS = 100
-INSTRUCTOR_TESTS_POINTS = 100
-
-JUNIT_JAR = '!UNSET'
-TEST_CONTEXT = TestContext
-
 # This regex MUST match the student's full name and the submission file name.
 # Submission [file] name as uploaded by the user, before modified by the submission website/platform.
-FILENAME_PATTERN=None
+FILENAME_PATTERNS= {
+    'cofc': r"^\d+-\d+ - ([\w\s\-']+)- \w\w\w{1,2} \d+, \d{4} \d+ [APM]{2} - ([\w\s\-]+\.zip)",
+    'example': r"ExampleHw - (.*)\.zip" }
 
 HW_NAME = None
 OUT_DIR = None
 OUT_FILE = None
 
-
 def grade(students_list):
     os.makedirs(OUT_DIR, exist_ok=True)
-    out_file = open(OUT_FILE, 'w+')
-
-    for student in students_list:
-        # create student-specific output file
-        student_out_file = open(os.path.join(OUT_DIR, student.full_name + '-' + HW_NAME + '.txt'), 'w+')
-        student_out_file.write(student.full_name + '\n\n')
-
-        if student.submitted_correctly:
-            # clean current test dir src
-            clean_directory(TEST_CONTEXT.SUT_PACKAGE_PATH)
-            clean_directory(os.path.join(TEST_CONTEXT.SUT_PATH, 'bin'))
-            clean_directory(os.path.join(TEST_CONTEXT.TEST_PATH, 'bin'))
-
-            try:
-                # extract student's code
-                student.extract(TEST_CONTEXT.SUT_PACKAGE_PATH)
-
-                # compute and output grades
-                grade = student.compute_grade(TEST_CONTEXT)
-                print(student.full_name + " scored a " + str(grade) + " out of " + str(INSTRUCTOR_TESTS_POINTS) + ' pts.')
-                if grade == Student.GRADE_UNGRADED:
-                    print("student hasn't been graded")
-                elif grade == Student.GRADE_COMPILE_ERROR:
-                    student_out_file.write('Your submission could not compile properly.\n\nCOMPILATION ERROR\n\n')
-                    student_out_file.write(student.outcome_compilation.stdout.decode("utf-8"))
-                elif grade == Student.GRADE_RUNTIME_ERROR:
-                    student_out_file.write('Your submission ran into an error at runtime.\nRUNTIME ERROR\n\n')
-                    student_out_file.write(student.outcome_junit.stdout.decode("utf-8"))
-                elif grade == Student.GRADE_UNKNOWN_ERROR:
-                    student_out_file.write('An error occurred while testing your code.')
-                elif grade >= 0:
-                    student_out_file.write('You scored a ' + str(student.grade) + ' out of ' + str(INSTRUCTOR_TESTS_POINTS) + ' pts.')
-                    student_out_file.write('\n\nTEST CASES\n\n')
-                    student_out_file.write(student.outcome_junit.stdout.decode("utf-8"))
-                # overview log file
-                out_file.write(student.full_name + '\t' + str(student.grade) + '\n')
-            except zipfile.BadZipFile as e:
-                #log badzipfile
-                print(e)
-            except Exception as e:
-                print(e)
-    out_file.close()
     
+    with open(OUT_FILE, 'w+') as out_file:
+        TestContext.log('Opening out_file...')
+        for student in students_list:
+            TestContext.log('Grading ' + student.id() + '...')
+            student.compute_grade(TestContext)
+            TestContext.log('Output grade for ' + student.id() + '...')
+            student.output(OUT_DIR)
+            TestContext.log('Output grade for ' + student.id() + '...')
+            out_file.write(student.id() + '\t' + str(student.grade) + '\n')
+        
 def get_students(path):
     students_submissions_list = os.listdir(path)
     students_list = []
     for submission in students_submissions_list:
         if(not submission.endswith('.zip') or os.path.isdir(submission)):
             continue
-        try:
-            students_list.append(Student(submission))
-        except Exception as e:
-            print(type(e))
-            print(e)
+        students_list.append(Student(submission))
 
     return students_list
 
@@ -91,51 +50,64 @@ def clean_directory(directory):
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
         except Exception as e:
-            print(e)
+            TestContext.log(e,1)
 
 def main():
+
     # Parse command-line options
-    if JUNIT_JAR == '!UNSET':
-        raise RuntimeError('\033[91mPath to JUnit has not been set. Open grading.py and set it.\033[0m')
-    parser = argparse.ArgumentParser(description="Let's grade!")
+    parser = argparse.ArgumentParser(prog='Gradebot 2000', description="Let's grade!")
     parser.add_argument('students_path', default='./', nargs='?')
-    parser.add_argument('system_under_test_path')
-    parser.add_argument('-t', '--testpath')
-    parser.add_argument('-o', '--outdir')
+    parser.add_argument('-t', '--testspath', '--testpath', required=True)
+    parser.add_argument('-c', '--testsclass', '--testclass', required=True, help='Class name with JUnit test cases')
+    parser.add_argument('-sp', '--support_path', help='Files in this path will be included in the test. Use this to include files provided to, but not modified by, the students.')
+    parser.add_argument('-o', '--outdir', help='Optional. Generates new directory by default.')
+    parser.add_argument('-j', '--junit_jar', default=os.environ.get('JUNIT_JAR'), help='If using a different version of JUnit, use this option to set the path to its JAR file.')
+    parser.add_argument('-e', '--update_env', action='store_true', help='Add this option to update JUNIT_JAR environment variable with the JAR file provided with --junit_jar (-j).')
+    parser.add_argument('-p', '--filename_pattern', '--pattern', choices=['cofc', 'example'], help='Filename patterns (regexes) can help extract student names or IDs from filenames')
     parser.add_argument('-a', '--hwname')
-    parser.add_argument('-c', '--testclass', help='Class name with JUnit test cases')
-    parser.add_argument('-s', '--support_path', help='Files in this path will be included in the test. Use this to provide include files provided to, but not modified by, the students.')
+    parser.add_argument('--version', action='version', version='%(prog)s version 1.0.0')
     args = parser.parse_args()
 
     # Set paths
-    global TEST_CONTEXT, OUT_DIR
-    TEST_CONTEXT.JUNIT_JAR = JUNIT_JAR
-    TEST_CONTEXT.SUT_PATH = args.system_under_test_path
-    TEST_CONTEXT.SUT_PACKAGE_PATH = os.path.join(args.system_under_test_path, 'src/')
-    TEST_CONTEXT.TEST_PATH = args.testpath
-    TEST_CONTEXT.ASSIGNMENT_TOTAL = ASSIGNMENT_TOTAL_POINTS
-    TEST_CONTEXT.TEST_CLASS = args.testclass
+    global OUT_DIR
+
+    if args.junit_jar and re.match(r'^.*\.jar', args.junit_jar):
+        TestContext.log('Verifying JAR file...')
+        TestContext.JUNIT_JAR = args.junit_jar
+    else:
+        TestContext.log('JUnit JAR not provided.')
+        junit_jar = os.path.join(args.testspath,'junit-platform-console-standalone-1.3.1.jar')
+        TestContext.log('Looking for jar file at ' + junit_jar + '...')
+        if os.path.isfile(junit_jar):
+            TestContext.JUNIT_JAR = junit_jar
+        else:
+            raise RuntimeError('\033[91mJUnit not found. You can provide a JAR file using -j option.\033[0m')
+
+    TestContext.TEST_PATH = args.testspath
+    TestContext.TEST_CLASS = args.testsclass
     Student.STUDENTS_PATH = args.students_path
-    Student.FILENAME_PATTERN = FILENAME_PATTERN
+    if args.filename_pattern and args.filename_pattern in FILENAME_PATTERNS:
+        TestContext.log('Using filename pattern ' + args.filename_pattern + '...')
+        Student.FILENAME_PATTERN = args.filename_pattern
     OUT_DIR = args.outdir
 
     if args.support_path:
-        TEST_CONTEXT.SUPPORT_PATH = args.support_path
+        TestContext.log('Using support path ' + args.support_path + '...')
+        TestContext.SUPPORT_PATH = args.support_path
 
-    global HW_NAME
     if not args.hwname:
-        HW_NAME = list(filter(None,args.system_under_test_path.split('/')))[-1]
+        TestContext.HW_NAME = ''
     else:
-        HW_NAME = args.hwname
+        TestContext.HW_NAME = args.hwname
 
     if not OUT_DIR: # if output directory name was not explicitly given, generate one
-        OUT_DIR = 'grades_' + HW_NAME.replace(' ', '_') + '_' + str(math.floor(time.time()))
+        OUT_DIR = 'grades_' + str(math.floor(time.time())) + ('_' + TestContext.HW_NAME.replace(' ', '_') if TestContext.HW_NAME else '')
 
     global OUT_FILE
     OUT_FILE = os.path.join(OUT_DIR,'grades.log')
 
-    students_list = get_students(args.students_path)
-    students_list = [student for student in students_list if student.submitted_correctly]
+    TestContext.log('Looking for students in ' + args.students_path)
+    students_list = [student for student in get_students(args.students_path) if student.submitted_correctly]
 
     grade(students_list)
 
